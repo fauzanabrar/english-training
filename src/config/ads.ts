@@ -12,10 +12,12 @@ export const adsConfig = {
   },
   inline: {
     enabled: featureFlags.ads.inline,
-    containerId: "container-9c9ea4fbff8dd33e714120c2cb2ec0d5",
-    scriptId: "adsterra-native-9c9ea4fbff8dd33e714120c2cb2ec0d5",
+    containerId: "container-821c14a503f59465b6bdbdc28b20b678",
+    scriptId: "adsterra-native-821c14a503f59465b6bdbdc28b20b678",
     scriptSrc:
-      "https://pl28463616.effectivegatecpm.com/9c9ea4fbff8dd33e714120c2cb2ec0d5/invoke.js",
+      "https://pl28511765.effectivegatecpm.com/821c14a503f59465b6bdbdc28b20b678/invoke.js",
+    frequencyStorageKey: "inlineAdLastShown",
+    minIntervalMs: 600_000,
     sessionStorageKey: "inlineAdShown",
     ariaLabel: "Sponsored content",
   },

@@ -87,7 +87,7 @@ export const useTrainingSession = <
     );
     return {
       stats: provider.createDefaultStats(),
-      mode: "mix",
+      mode: "mix" as Mode,
       settings: normalizedSettings,
       timeLeft: normalizedSettings.timeLimitSeconds,
       wrongQuestions: [],
@@ -110,9 +110,9 @@ export const useTrainingSession = <
   const [questionIndex, setQuestionIndex] = useState(1);
   const [timeLeft, setTimeLeft] = useState(initialState.timeLeft);
   const [answered, setAnswered] = useState(false);
-  const [wrongQuestions, setWrongQuestions] = useState(
-    initialState.wrongQuestions
-  );
+  const [wrongQuestions, setWrongQuestions] = useState<
+    WrongQuestionEntry<Question>[]
+  >(initialState.wrongQuestions);
   const [sessionTotal, setSessionTotal] = useState(
     initialState.sessionTotal
   );

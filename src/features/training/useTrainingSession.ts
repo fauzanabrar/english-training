@@ -8,7 +8,7 @@ import type {
   TrainingSettingsBase,
 } from "./types";
 
-type Screen = "menu" | "drill" | "settings" | "summary" | "stats";
+type Screen = "menu" | "drill" | "settings" | "summary" | "stats" | "study";
 
 type Feedback<SkillKey extends string> = {
   correct: boolean;
@@ -24,6 +24,13 @@ type SessionCounts = {
   wrong: number;
 };
 
+type WrongQuestionEntry<Question> = {
+  key: string;
+  question: Question;
+  attempts: number;
+  lastMissed: number;
+};
+
 type UseTrainingSessionOptions<
   SkillKey extends string,
   Question extends TrainingQuestion<SkillKey>,
@@ -34,6 +41,7 @@ type UseTrainingSessionOptions<
   storageKeys: {
     session: string;
     settings: string;
+    wrongQuestions?: string;
   };
   onSessionComplete?: () => void;
 };
@@ -53,6 +61,8 @@ const normalizeSettings = <Settings,>(
   return next;
 };
 
+const MAX_WRONG_QUESTIONS = 40;
+
 export const useTrainingSession = <
   SkillKey extends string,
   Question extends TrainingQuestion<SkillKey>,
@@ -71,28 +81,19 @@ export const useTrainingSession = <
   type Mode = TrainingMode<SkillKey>;
 
   const initialState = useMemo(() => {
-    const savedSession = storage.readJSON<{
-      stats?: ReturnType<typeof provider.createDefaultStats>;
-      mode?: Mode;
-    }>(storageKeys.session);
-    const savedSettings = storage.readJSON<Partial<Settings>>(
-      storageKeys.settings
-    );
-    const merged = {
-      ...provider.settings.defaultValue,
-      ...savedSettings,
-    } as Settings;
     const normalizedSettings = normalizeSettings(
-      merged,
+      provider.settings.defaultValue,
       provider.settings.controls
     );
     return {
-      stats: savedSession?.stats ?? provider.createDefaultStats(),
-      mode: savedSession?.mode ?? "mix",
+      stats: provider.createDefaultStats(),
+      mode: "mix",
       settings: normalizedSettings,
       timeLeft: normalizedSettings.timeLimitSeconds,
+      wrongQuestions: [],
+      sessionTotal: normalizedSettings.questionCount,
     };
-  }, [provider, storageKeys]);
+  }, [provider]);
 
   const [stats, setStats] = useState(initialState.stats);
   const [mode, setMode] = useState<Mode>(initialState.mode);
@@ -109,19 +110,83 @@ export const useTrainingSession = <
   const [questionIndex, setQuestionIndex] = useState(1);
   const [timeLeft, setTimeLeft] = useState(initialState.timeLeft);
   const [answered, setAnswered] = useState(false);
+  const [wrongQuestions, setWrongQuestions] = useState(
+    initialState.wrongQuestions
+  );
+  const [sessionTotal, setSessionTotal] = useState(
+    initialState.sessionTotal
+  );
+  const [storageReady, setStorageReady] = useState(false);
 
   const startTimeRef = useRef<number>(0);
   const advanceTimerRef = useRef<number | null>(null);
   const statsRef = useRef(stats);
   const modeRef = useRef(mode);
+  const sessionTotalRef = useRef(sessionTotal);
+  const lastOutcomeRef = useRef<{ question: Question; correct: boolean } | null>(
+    null
+  );
+  const reviewQueueRef = useRef<WrongQuestionEntry<Question>[]>([]);
 
   useEffect(() => {
+    if (storageReady) {
+      return;
+    }
+    const savedSession = storage.readJSON<{
+      stats?: ReturnType<typeof provider.createDefaultStats>;
+      mode?: Mode;
+    }>(storageKeys.session);
+    const savedSettings = storage.readJSON<Partial<Settings>>(
+      storageKeys.settings
+    );
+    const savedWrongQuestions = storageKeys.wrongQuestions
+      ? storage.readJSON<WrongQuestionEntry<Question>[]>(
+          storageKeys.wrongQuestions
+        )
+      : null;
+    const merged = {
+      ...provider.settings.defaultValue,
+      ...savedSettings,
+    } as Settings;
+    const normalizedSettings = normalizeSettings(
+      merged,
+      provider.settings.controls
+    );
+    if (savedSession?.stats) {
+      setStats(savedSession.stats);
+    }
+    if (savedSession?.mode) {
+      setMode(savedSession.mode);
+    }
+    if (Array.isArray(savedWrongQuestions)) {
+      setWrongQuestions(savedWrongQuestions);
+    }
+    setSettings(normalizedSettings);
+    setTimeLeft(normalizedSettings.timeLimitSeconds);
+    setSessionTotal(normalizedSettings.questionCount);
+    setStorageReady(true);
+  }, [provider, storageKeys, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady) {
+      return;
+    }
     storage.writeJSON(storageKeys.session, { stats, mode });
-  }, [stats, mode, storageKeys]);
+  }, [stats, mode, storageKeys, storageReady]);
 
   useEffect(() => {
+    if (!storageReady) {
+      return;
+    }
     storage.writeJSON(storageKeys.settings, settings);
-  }, [settings, storageKeys]);
+  }, [settings, storageKeys, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady || !storageKeys.wrongQuestions) {
+      return;
+    }
+    storage.writeJSON(storageKeys.wrongQuestions, wrongQuestions);
+  }, [storageKeys.wrongQuestions, wrongQuestions, storageReady]);
 
   useEffect(() => {
     statsRef.current = stats;
@@ -130,6 +195,10 @@ export const useTrainingSession = <
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  useEffect(() => {
+    sessionTotalRef.current = sessionTotal;
+  }, [sessionTotal]);
 
   useEffect(() => {
     return () => {
@@ -145,6 +214,46 @@ export const useTrainingSession = <
       advanceTimerRef.current = null;
     }
   }, []);
+
+  const getQuestionKey = useCallback(
+    (item: Question) =>
+      provider.getQuestionKey ? provider.getQuestionKey(item) : item.id,
+    [provider]
+  );
+
+  const upsertWrongQuestion = useCallback(
+    (item: Question) => {
+      if (!storageKeys.wrongQuestions) {
+        return;
+      }
+      const key = getQuestionKey(item);
+      const now = Date.now();
+      setWrongQuestions((prev) => {
+        const existing = prev.find((entry) => entry.key === key);
+        const nextEntry: WrongQuestionEntry<Question> = {
+          key,
+          question: item,
+          attempts: (existing?.attempts ?? 0) + 1,
+          lastMissed: now,
+        };
+        const filtered = prev.filter((entry) => entry.key !== key);
+        const next = [nextEntry, ...filtered];
+        return next.slice(0, MAX_WRONG_QUESTIONS);
+      });
+    },
+    [getQuestionKey, storageKeys.wrongQuestions]
+  );
+
+  const removeWrongQuestion = useCallback(
+    (item: Question) => {
+      if (!storageKeys.wrongQuestions) {
+        return;
+      }
+      const key = getQuestionKey(item);
+      setWrongQuestions((prev) => prev.filter((entry) => entry.key !== key));
+    },
+    [getQuestionKey, storageKeys.wrongQuestions]
+  );
 
   const allowNegativeAnswer = useMemo(() => {
     if (!question || !provider.answer.allowNegative) {
@@ -175,33 +284,82 @@ export const useTrainingSession = <
 
   const createQuestion = useCallback(
     (selectedMode: Mode) => {
+      const lastOutcome = lastOutcomeRef.current;
+      const resolvedMode = selectedMode === "review" ? "mix" : selectedMode;
       const skill =
-        selectedMode === "mix"
-          ? provider.pickSkill(statsRef.current)
-          : selectedMode;
+        resolvedMode === "mix"
+          ? lastOutcome && !lastOutcome.correct
+            ? lastOutcome.question.skill
+            : provider.pickSkill(statsRef.current)
+          : resolvedMode;
       const level = statsRef.current[skill].level;
       return provider.createQuestion({
         skill,
         level,
         settings,
         stats: statsRef.current,
+        previousQuestion: lastOutcome?.question,
+        previousCorrect: lastOutcome?.correct,
       });
     },
     [provider, settings]
   );
+
+  const buildReviewQueue = useCallback(() => {
+    const sorted = [...wrongQuestions].sort(
+      (a, b) => b.lastMissed - a.lastMissed
+    );
+    return sorted;
+  }, [wrongQuestions]);
+
+  const getNextReviewQuestion = useCallback(() => {
+    const nextEntry = reviewQueueRef.current.shift();
+    return nextEntry ? nextEntry.question : null;
+  }, []);
 
   const startSession = useCallback(
     (nextMode: Mode) => {
       clearAdvanceTimer();
       setMode(nextMode);
       modeRef.current = nextMode;
+      lastOutcomeRef.current = null;
       setSession({ correct: 0, wrong: 0 });
       setQuestionIndex(1);
+      reviewQueueRef.current = [];
+      const isReview = nextMode === "review";
+      const queue = isReview ? buildReviewQueue() : [];
+      const totalQuestions = isReview ? queue.length : settings.questionCount;
+      setSessionTotal(totalQuestions);
+      sessionTotalRef.current = totalQuestions;
+
+      if (isReview) {
+        if (totalQuestions === 0) {
+          setScreen("menu");
+          return;
+        }
+        reviewQueueRef.current = queue.slice(0, totalQuestions);
+        const nextQuestion = getNextReviewQuestion();
+        if (!nextQuestion) {
+          setScreen("menu");
+          return;
+        }
+        setScreen("drill");
+        beginQuestion(nextQuestion);
+        return;
+      }
+
       setScreen("drill");
       const nextQuestion = createQuestion(nextMode);
       beginQuestion(nextQuestion);
     },
-    [beginQuestion, clearAdvanceTimer, createQuestion]
+    [
+      beginQuestion,
+      buildReviewQueue,
+      clearAdvanceTimer,
+      createQuestion,
+      getNextReviewQuestion,
+      settings.questionCount,
+    ]
   );
 
   const goToMenu = useCallback(() => {
@@ -212,6 +370,8 @@ export const useTrainingSession = <
     setError(null);
     setAnswer("");
     setAnswered(false);
+    lastOutcomeRef.current = null;
+    reviewQueueRef.current = [];
   }, [clearAdvanceTimer]);
 
   const applyResult = useCallback(
@@ -234,6 +394,12 @@ export const useTrainingSession = <
         level: question.level,
         timedOut,
       });
+      lastOutcomeRef.current = { question, correct };
+      if (correct) {
+        removeWrongQuestion(question);
+      } else {
+        upsertWrongQuestion(question);
+      }
       setSession((prev) => ({
         correct: prev.correct + (correct ? 1 : 0),
         wrong: prev.wrong + (correct ? 0 : 1),
@@ -241,54 +407,71 @@ export const useTrainingSession = <
       setError(null);
       setAnswered(true);
     },
-    [provider, question]
+    [provider, question, removeWrongQuestion, upsertWrongQuestion]
   );
 
-  const handleSubmit = useCallback((options?: { useKeypad?: boolean }) => {
-    if (!question || answered) {
-      return;
-    }
-    const prefersKeypadErrors = Boolean(options?.useKeypad);
-    const allowNegative = allowNegativeAnswer;
-    const cleaned = provider.answer.sanitizeInput(answer.trim(), {
-      allowNegative,
-    });
-    const parsed = provider.answer.parseInput(cleaned, { allowNegative });
-    if (parsed.error) {
-      if (parsed.error === "empty") {
-        setError(
-          prefersKeypadErrors
-            ? provider.answer.errors.emptyKeypad ??
-                provider.answer.errors.empty
-            : provider.answer.errors.empty
-        );
+  const evaluateAnswer = useCallback(
+    (rawValue: string, prefersKeypadErrors: boolean) => {
+      if (!question || answered) {
         return;
       }
-      if (parsed.error === "incomplete") {
-        setError(provider.answer.errors.incomplete);
+      const allowNegative = allowNegativeAnswer;
+      const cleaned = provider.answer.sanitizeInput(rawValue.trim(), {
+        allowNegative,
+      });
+      setAnswer(cleaned);
+      const parsed = provider.answer.parseInput(cleaned, { allowNegative });
+      if (parsed.error) {
+        if (parsed.error === "empty") {
+          setError(
+            prefersKeypadErrors
+              ? provider.answer.errors.emptyKeypad ??
+                  provider.answer.errors.empty
+              : provider.answer.errors.empty
+          );
+          return;
+        }
+        if (parsed.error === "incomplete") {
+          setError(provider.answer.errors.incomplete);
+          return;
+        }
+        setError(provider.answer.errors.invalid);
         return;
       }
-      setError(provider.answer.errors.invalid);
-      return;
-    }
 
-    const elapsed = Date.now() - startTimeRef.current;
-    const correct = provider.answer.isCorrect(
-      parsed.value as AnswerValue,
-      question
-    );
+      const elapsed = Date.now() - startTimeRef.current;
+      const correct = provider.answer.isCorrect(
+        parsed.value as AnswerValue,
+        question
+      );
 
-    clearAdvanceTimer();
-    applyResult(correct, elapsed);
-  }, [
-    allowNegativeAnswer,
-    answer,
-    answered,
-    applyResult,
-    clearAdvanceTimer,
-    provider.answer,
-    question,
-  ]);
+      clearAdvanceTimer();
+      applyResult(correct, elapsed);
+    },
+    [
+      allowNegativeAnswer,
+      answered,
+      applyResult,
+      clearAdvanceTimer,
+      provider.answer,
+      question,
+    ]
+  );
+
+  const handleSubmit = useCallback(
+    (options?: { useKeypad?: boolean }) => {
+      evaluateAnswer(answer, Boolean(options?.useKeypad));
+    },
+    [answer, evaluateAnswer]
+  );
+
+  const handleChoiceSelect = useCallback(
+    (rawValue: string) => {
+      setError(null);
+      evaluateAnswer(rawValue, false);
+    },
+    [evaluateAnswer]
+  );
 
   const handleAnswerChange = useCallback(
     (rawValue: string) => {
@@ -352,7 +535,7 @@ export const useTrainingSession = <
     }
     clearAdvanceTimer();
     const nextIndex = questionIndex + 1;
-    if (nextIndex > settings.questionCount) {
+    if (nextIndex > sessionTotalRef.current) {
       setScreen("summary");
       setQuestion(null);
       setAnswered(false);
@@ -362,17 +545,29 @@ export const useTrainingSession = <
       return;
     }
     setQuestionIndex(nextIndex);
-    const nextQuestion = createQuestion(modeRef.current);
+    const nextQuestion =
+      modeRef.current === "review"
+        ? getNextReviewQuestion()
+        : createQuestion(modeRef.current);
+    if (!nextQuestion) {
+      setScreen("summary");
+      setQuestion(null);
+      setAnswered(false);
+      if (onSessionComplete) {
+        onSessionComplete();
+      }
+      return;
+    }
     beginQuestion(nextQuestion);
   }, [
     answered,
     beginQuestion,
     clearAdvanceTimer,
     createQuestion,
+    getNextReviewQuestion,
     onSessionComplete,
     question,
     questionIndex,
-    settings.questionCount,
   ]);
 
   const handleTimeout = useCallback(() => {
@@ -387,7 +582,10 @@ export const useTrainingSession = <
     const fresh = provider.createDefaultStats();
     statsRef.current = fresh;
     setStats(fresh);
-  }, [provider]);
+    if (storageKeys.wrongQuestions) {
+      setWrongQuestions([]);
+    }
+  }, [provider, storageKeys.wrongQuestions]);
 
   const adjustSetting = useCallback(
     (controlId: string, delta: number) => {
@@ -429,7 +627,7 @@ export const useTrainingSession = <
   }, [answered, handleTimeout, question, screen, settings.timeLimitSeconds]);
 
   useEffect(() => {
-    if (!feedback || (!feedback.correct && !feedback.timedOut)) {
+    if (!feedback || !feedback.correct) {
       return;
     }
     clearAdvanceTimer();
@@ -440,6 +638,8 @@ export const useTrainingSession = <
       clearAdvanceTimer();
     };
   }, [feedback, clearAdvanceTimer, handleNext]);
+
+  const wrongQuestionCount = wrongQuestions.length;
 
   return {
     screen,
@@ -453,12 +653,15 @@ export const useTrainingSession = <
     error,
     session,
     questionIndex,
+    sessionTotal,
     timeLeft,
     answered,
     allowNegativeAnswer,
     keypadRows,
+    wrongQuestionCount,
     startSession,
     goToMenu,
+    handleChoiceSelect,
     handleSubmit,
     handleNext,
     handleTimeout,

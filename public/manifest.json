@@ -1,12 +1,12 @@
 {
-  "name": "Training Template",
-  "short_name": "Template",
-  "description": "Adaptive practice template with modular providers and analytics.",
+  "name": "English Training",
+  "short_name": "English",
+  "description": "Adaptive English practice with deliberate drills and study guides.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f8f0e6",
-  "theme_color": "#ff6b35",
+  "background_color": "#f5f1ea",
+  "theme_color": "#f26a3d",
   "icons": [
     {
       "src": "/icons/icon.svg",

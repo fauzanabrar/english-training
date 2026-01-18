@@ -1,4 +1,7 @@
-export type TrainingMode<SkillKey extends string> = SkillKey | "mix";
+export type TrainingMode<SkillKey extends string> =
+  | SkillKey
+  | "mix"
+  | "review";
 
 export interface Result {
   correct: boolean;
@@ -92,6 +95,8 @@ export type TrainingProvider<
     level: number;
     settings: Settings;
     stats: Stats<SkillKey>;
+    previousQuestion?: Question;
+    previousCorrect?: boolean;
   }) => Question;
   getQuestionText: (question: Question) => string;
   updateStats: (stats: Stats<SkillKey>, args: {
@@ -104,6 +109,7 @@ export type TrainingProvider<
   getTargetMs: (level: number) => number;
   getWeakestSkill: (stats: Stats<SkillKey>) => SkillKey;
   pickSkill: (stats: Stats<SkillKey>) => SkillKey;
+  getQuestionKey?: (question: Question) => string;
   answer: AnswerConfig<Settings, Question, AnswerValue>;
   settings: {
     defaultValue: Settings;

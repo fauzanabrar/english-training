@@ -1,7 +1,7 @@
 import { appConfig } from "./app";
-import { mathTrainingProvider } from "@/features/training/providers/mathTrainingProvider";
+import { englishTrainingProvider } from "@/features/training/providers/englishTrainingProvider";
 
-type ProviderSkillKey = keyof typeof mathTrainingProvider.skills;
+type ProviderSkillKey = keyof typeof englishTrainingProvider.skills;
 type TrainingModeKey = ProviderSkillKey | "mix";
 
 const storagePrefix = appConfig.storagePrefix;
@@ -13,9 +13,9 @@ const mixMode: {
   icon: string;
 } = {
   key: "mix" as const,
-  label: "Random mix",
-  subtitle: "Adaptive blend",
-  icon: "M",
+  label: "Adaptive mix",
+  subtitle: "Deliberate practice on weak spots",
+  icon: "A",
 };
 
 const skillModes: Array<{
@@ -23,19 +23,20 @@ const skillModes: Array<{
   label: string;
   subtitle: string;
   icon: string;
-}> = mathTrainingProvider.skillOrder.map((skill) => ({
+}> = englishTrainingProvider.skillOrder.map((skill) => ({
   key: skill,
-  label: mathTrainingProvider.skills[skill].label,
-  subtitle: mathTrainingProvider.skills[skill].subtitle,
-  icon: mathTrainingProvider.skills[skill].symbol,
+  label: englishTrainingProvider.skills[skill].label,
+  subtitle: englishTrainingProvider.skills[skill].subtitle,
+  icon: englishTrainingProvider.skills[skill].symbol,
 }));
 
 export const trainingConfig = {
-  provider: mathTrainingProvider,
+  provider: englishTrainingProvider,
   storageKeys: {
     session: `${storagePrefix}:session`,
     settings: `${storagePrefix}:settings`,
     theme: `${storagePrefix}:theme`,
+    wrongQuestions: `${storagePrefix}:wrong-questions`,
   },
   modes: [mixMode, ...skillModes] as Array<{
     key: TrainingModeKey;
@@ -49,37 +50,40 @@ export const trainingConfig = {
       shortName: appConfig.shortName,
     },
     menu: {
-      title: "Choose a drill",
+      title: "Choose your English focus",
       description:
-        "Pick a focus or use Random mix to adapt to your weakest skill.",
-      statsAction: "Statistics",
+        "Pick a skill or use Adaptive mix to target what needs the most attention.",
+      statsAction: "Progress",
+      studyAction: "English cheatset",
+      reviewAction: "Practice wrong answers",
+      reviewLabel: "Wrong answers",
       settingsAction: "Settings",
       questionsSuffix: "questions",
       timeSuffix: "s per question",
       weakestPrefix: "Weakest:",
-      negativesLabel: "Negatives:",
-      negativesOff: "Off",
-      negativesFormat: (value: number) => `Lvl ${value}+`,
+      wrongPrefix: "Wrong bank:",
     },
     drill: {
-      subtitle: "Answer fast and correct to level up.",
+      subtitle: "Choose the best answer, fix weak spots, and level up.",
       questionLabel: "Question",
       timeLabel: "Time",
-      skillLabel: "Category",
+      skillLabel: "Skill",
+      focusLabel: "Focus",
       levelLabel: "Level",
       targetLabel: "Target",
-      answerPlaceholder: "Type your answer",
+      answerPlaceholder: "Choose the best answer",
       answerPlaceholderKeypad: "Tap to answer",
       checkAction: "Check",
       nextAction: "Next",
       loading: "Loading your prompt...",
       sessionScoreLabel: "Session score",
-      sessionHint: "Stay focused and keep moving.",
+      sessionHint: "Deliberate practice keeps you improving.",
+      tipLabel: "Tip",
     },
     stats: {
-      title: "Statistics",
+      title: "Progress",
       intro:
-        "Recent performance across your drills (last 12 attempts per skill).",
+        "Your recent practice across skills (last 12 attempts per skill).",
       overallTitle: "Overall",
       overallIntro: "Based on your recent attempts across all skills.",
       accuracyLabel: "Accuracy",
@@ -107,14 +111,15 @@ export const trainingConfig = {
     },
     appBar: {
       menu: appConfig.name,
-      drillSuffix: "drill",
+      drillSuffix: "practice",
       summary: "Session summary",
-      stats: "Statistics",
+      stats: "Progress",
+      study: "English cheatset",
       settings: "Settings",
     },
     feedback: {
       correctPrefix: "Correct.",
-      wrongPrefix: "Not yet. Answer:",
+      wrongPrefix: "Not quite. Answer:",
       timeoutPrefix: "Time's up. Answer:",
     },
   },

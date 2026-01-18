@@ -1,14 +1,14 @@
-# Training Template - Adaptive Practice Starter
+# English Training - Adaptive Practice PWA
 
-A reusable Next.js template for building adaptive training apps. It includes a configurable training engine, modular providers, optional PWA/SEO/ads, and a polished UI you can keep or swap.
+An English training PWA that blends deliberate practice with adaptive drills. Practice vocabulary, grammar, phrases, and reading, then use the Study English guide to reinforce what you learn.
 
 ## Features
 
-- Provider-driven training flow with session settings and analytics
-- Modular config for branding, SEO, ads, and PWA behavior
-- Responsive UI with light/dark theme toggle
-- Local storage persistence for sessions and settings
-- Optional ads (disabled by default)
+- Adaptive mix mode that prioritizes weak skills and recent mistakes
+- Targeted English drills with tips after wrong answers
+- Study English menu with short lessons and routines
+- Progress tracking, levels, and session summaries
+- PWA-ready service worker and manifest
 
 ## Tech Stack
 
@@ -32,14 +32,10 @@ npm run build
 npm run start
 ```
 
-## Template Setup
-
-See `TEMPLATE_SETUP.md` for a step-by-step checklist.
-
 ## Project Structure
 
 ```
-training-template/
+english-training/
   src/
     app/
       layout.tsx
@@ -55,6 +51,7 @@ training-template/
       seo.ts
       ads.ts
       pwa.ts
+      study.ts
     components/
       ads/
         InlineScriptAdSlot.tsx
@@ -63,13 +60,13 @@ training-template/
     features/
       training/
         providers/
-          mathTrainingProvider.ts
+          englishTrainingProvider.ts
         types.ts
         useTrainingSession.ts
     hooks/
       useThemeMode.ts
     lib/
-      math.ts
+      english.ts
       storage.ts
   public/
     manifest.json
@@ -82,6 +79,7 @@ training-template/
 - Branding and metadata: `src/config/app.ts`, `src/config/seo.ts`
 - Feature toggles (PWA/SEO/ads): `src/config/features.ts`
 - Training flow + copy: `src/config/training.ts`
+- Study content: `src/config/study.ts`
 - Provider logic: `src/features/training/providers/`
 
 ## Deployment

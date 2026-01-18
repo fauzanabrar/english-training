@@ -1,4 +1,4 @@
-const CACHE_NAME = "training-template-v1";
+const CACHE_NAME = "english-training-v1";
 const CORE_ASSETS = [
   "/",
   "/manifest.json",

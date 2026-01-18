@@ -1,16 +1,10 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from "react";
+import { useCallback, useEffect, useMemo, type ReactElement } from "react";
 import styles from "./page.module.css";
 import { adsConfig } from "@/config/ads";
 import { trainingConfig } from "@/config/training";
+import { studyConfig } from "@/config/study";
 import { InlineScriptAdSlot } from "@/components/ads/InlineScriptAdSlot";
 import { popUnderAd } from "@/components/PopUnderAd";
 import { useTrainingSession } from "@/features/training/useTrainingSession";
@@ -28,13 +22,6 @@ const popUnderEnabled = adsConfig.enabled && adsConfig.popUnder.enabled;
 
 export default function Home() {
   const { provider, modes, storageKeys, copy } = trainingConfig;
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [useKeypad] = useState(() => {
-    if (typeof navigator === "undefined") {
-      return false;
-    }
-    return /android/i.test(navigator.userAgent);
-  });
 
   const { theme, toggleTheme } = useThemeMode(storageKeys.theme);
 
@@ -56,15 +43,15 @@ export default function Home() {
     error,
     session,
     questionIndex,
+    sessionTotal,
     timeLeft,
     answered,
-    keypadRows,
+    allowNegativeAnswer,
+    wrongQuestionCount,
     startSession,
     goToMenu,
-    handleSubmit,
     handleNext,
-    handleAnswerChange,
-    handleKeypadPress,
+    handleChoiceSelect,
     resetStats,
     adjustSetting,
   } = useTrainingSession({
@@ -72,13 +59,6 @@ export default function Home() {
     storageKeys,
     onSessionComplete: handleSessionComplete,
   });
-
-  useEffect(() => {
-    if (screen !== "drill" || useKeypad || answered) {
-      return;
-    }
-    inputRef.current?.focus();
-  }, [answered, question?.id, screen, useKeypad]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -126,24 +106,15 @@ export default function Home() {
     ? provider.skills[weakestSkill].label
     : copy.stats.noData;
 
-  const negativeControl = provider.settings.controls.find(
-    (control) => control.id === "negativeLevel"
-  );
-  const negativeValue = negativeControl
-    ? negativeControl.getValue(settings)
-    : null;
-  const negativeText =
-    negativeControl && typeof negativeValue === "number"
-      ? negativeControl.formatValue
-        ? negativeControl.formatValue(negativeValue, settings)
-        : negativeValue === 0
-          ? copy.menu.negativesOff
-          : copy.menu.negativesFormat(negativeValue)
-      : null;
-
   const mixModeLabel =
     modes.find((item) => item.key === "mix")?.label ?? "Mix";
-  const modeLabel = mode === "mix" ? mixModeLabel : provider.skills[mode].label;
+  const reviewLabel = copy.menu.reviewLabel ?? copy.menu.reviewAction;
+  const modeLabel =
+    mode === "review"
+      ? reviewLabel
+      : mode === "mix"
+        ? mixModeLabel
+        : provider.skills[mode].label;
   const timeLeftLabel = formatSeconds(timeLeft);
   const appBarTitle =
     screen === "menu"
@@ -154,7 +125,9 @@ export default function Home() {
           ? copy.appBar.summary
           : screen === "stats"
             ? copy.appBar.stats
-            : copy.appBar.settings;
+            : screen === "study"
+              ? copy.appBar.study
+              : copy.appBar.settings;
 
   const totalAnswered = session.correct + session.wrong;
   const accuracy = totalAnswered
@@ -175,6 +148,13 @@ export default function Home() {
         ? `${copy.feedback.timeoutPrefix} ${feedback.expected}.`
         : `${copy.feedback.wrongPrefix} ${feedback.expected}.`
     : "";
+  const tipText =
+    feedback && !feedback.correct && question?.tip ? question.tip : "";
+  const reviewButtonLabel =
+    wrongQuestionCount > 0
+      ? `${copy.menu.reviewAction} (${wrongQuestionCount})`
+      : copy.menu.reviewAction;
+  const showNextButton = Boolean(answered && feedback && !feedback.correct);
 
   let content: ReactElement | null = null;
 
@@ -201,13 +181,11 @@ export default function Home() {
                 {copy.menu.weakestPrefix} {weaknessText}
               </span>
             </div>
-            {negativeText ? (
-              <div className={styles.metaBadge}>
-                <span className={styles.metaBadgeText}>
-                  {copy.menu.negativesLabel} {negativeText}
-                </span>
-              </div>
-            ) : null}
+            <div className={styles.metaBadge}>
+              <span className={styles.metaBadgeText}>
+                {copy.menu.wrongPrefix} {wrongQuestionCount}
+              </span>
+            </div>
           </div>
         </section>
 
@@ -229,6 +207,23 @@ export default function Home() {
         </div>
 
         <div className={styles.menuActions}>
+          <button
+            type="button"
+            onClick={() => startSession("review")}
+            disabled={wrongQuestionCount === 0}
+            className={`${styles.settingsButton} ${styles.menuActionButton} ${
+              wrongQuestionCount === 0 ? styles.buttonDisabled : ""
+            }`}
+          >
+            {reviewButtonLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => setScreen("study")}
+            className={`${styles.settingsButton} ${styles.menuActionButton}`}
+          >
+            {copy.menu.studyAction}
+          </button>
           <button
             type="button"
             onClick={() => setScreen("stats")}
@@ -255,7 +250,7 @@ export default function Home() {
           <div className={styles.statusPill}>
             <span className={styles.statusText}>
               {copy.drill.questionLabel} {questionIndex}/
-              {settings.questionCount}
+              {sessionTotal}
             </span>
           </div>
           <div
@@ -282,6 +277,9 @@ export default function Home() {
                   {copy.drill.skillLabel}: {provider.skills[question.skill].label}
                 </span>
                 <span className={styles.metaPill}>
+                  {copy.drill.focusLabel}: {question.focus}
+                </span>
+                <span className={styles.metaPill}>
                   {copy.drill.levelLabel} {question.level}
                 </span>
                 <span className={styles.metaPill}>
@@ -293,107 +291,43 @@ export default function Home() {
                 {provider.getQuestionText(question)}
               </div>
 
-              <div className={styles.answerBlock}>
-                {useKeypad && keypadRows ? (
-                  <>
-                    <div className={styles.answerDisplay}>
-                      <span
-                        className={
-                          answer.length === 0
-                            ? styles.answerPlaceholder
-                            : styles.answerDisplayText
-                        }
+              {question.choices?.length ? (
+                <div className={styles.choiceGrid}>
+                  {question.choices.map((choice) => {
+                    const sanitizedChoice = provider.answer.sanitizeInput(choice, {
+                      allowNegative: allowNegativeAnswer,
+                    });
+                    const isSelected = answer === sanitizedChoice;
+                    return (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => handleChoiceSelect(choice)}
+                        disabled={answered}
+                        className={`${styles.choiceButton} ${
+                          isSelected ? styles.choiceButtonActive : ""
+                        } ${answered ? styles.choiceButtonDisabled : ""}`}
                       >
-                        {answer.length === 0
-                          ? copy.drill.answerPlaceholderKeypad
-                          : answer}
-                      </span>
-                    </div>
-                    <div className={styles.keypad}>
-                      {keypadRows.map((row, rowIndex) => (
-                        <div key={`row-${rowIndex}`} className={styles.keypadRow}>
-                          {row.map((key) => {
-                            const isActionKey = key === "CLR" || key === "DEL";
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                onClick={() => handleKeypadPress(key)}
-                                disabled={answered}
-                                className={`${styles.keypadButton} ${
-                                  isActionKey ? styles.keypadButtonAlt : ""
-                                } ${answered ? styles.keypadButtonDisabled : ""}`}
-                              >
-                                <span
-                                  className={`${styles.keypadButtonText} ${
-                                    isActionKey ? styles.keypadButtonAltText : ""
-                                  } ${
-                                    answered ? styles.keypadButtonTextDisabled : ""
-                                  }`}
-                                >
-                                  {key}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className={styles.answerRow}>
-                    <input
-                      ref={inputRef}
-                      className={styles.answerInput}
-                      type="text"
-                      inputMode={provider.answer.inputMode}
-                      pattern={
-                        provider.answer.inputMode === "numeric"
-                          ? "[-0-9]*"
-                          : undefined
-                      }
-                      value={answer}
-                      onChange={(event) => {
-                        handleAnswerChange(event.target.value);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          handleSubmit();
-                        }
-                      }}
-                      placeholder={provider.answer.placeholder}
-                      autoComplete="off"
-                      disabled={answered}
-                      aria-label="Answer input"
-                    />
-                  </div>
-                )}
-                <div className={styles.actionRow}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleSubmit({ useKeypad: Boolean(useKeypad && keypadRows) })
-                    }
-                    disabled={answered}
-                    className={`${styles.primaryButton} ${
-                      answered ? styles.buttonDisabled : ""
-                    }`}
-                  >
-                    {copy.drill.checkAction}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    disabled={!answered}
-                    className={`${styles.secondaryButton} ${
-                      !answered ? styles.buttonDisabled : ""
-                    }`}
-                  >
-                    {copy.drill.nextAction}
-                  </button>
+                        <span className={styles.choiceButtonText}>{choice}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+              ) : null}
+
+              {showNextButton ? (
+                <div className={styles.answerBlock}>
+                  <div className={styles.actionRow}>
+                    <button
+                      type="button"
+                      onClick={handleNext}
+                      className={styles.secondaryButton}
+                    >
+                      {copy.drill.nextAction}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {error ? <p className={styles.errorText}>{error}</p> : null}
               {feedback ? (
@@ -405,6 +339,12 @@ export default function Home() {
                   }`}
                 >
                   <span className={styles.feedbackText}>{feedbackText}</span>
+                </div>
+              ) : null}
+              {tipText ? (
+                <div className={styles.tipCard}>
+                  <span className={styles.tipLabel}>{copy.drill.tipLabel}</span>
+                  <p className={styles.tipText}>{tipText}</p>
                 </div>
               ) : null}
             </div>
@@ -523,6 +463,43 @@ export default function Home() {
             );
           })}
         </div>
+      </>
+    );
+  }
+
+  if (screen === "study") {
+    content = (
+      <>
+        <section className={styles.hero}>
+          <h1 className={styles.heroTitle}>{studyConfig.title}</h1>
+          <p className={styles.heroText}>{studyConfig.intro}</p>
+        </section>
+
+        <div className={styles.studyGrid}>
+          {studyConfig.sections.map((section) => (
+            <section key={section.title} className={styles.studyCard}>
+              <h2 className={styles.sectionTitle}>{section.title}</h2>
+              {section.description ? (
+                <p className={styles.sectionSub}>{section.description}</p>
+              ) : null}
+              <ul className={styles.studyList}>
+                {section.items.map((item) => (
+                  <li key={item} className={styles.studyItem}>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={goToMenu}
+          className={`${styles.secondaryButton} ${styles.fullWidthButton}`}
+        >
+          {copy.settings.backToMenu}
+        </button>
       </>
     );
   }

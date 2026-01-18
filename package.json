@@ -1,8 +1,8 @@
 {
-  "name": "training-template",
+  "name": "english-training",
   "version": "0.1.0",
   "private": true,
-  "description": "Adaptive training template with configurable providers and UI.",
+  "description": "Adaptive English training PWA with deliberate practice and study guides.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

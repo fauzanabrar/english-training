@@ -8,7 +8,7 @@ export const seoConfig = {
   enabled: featureFlags.seo.enabled,
   indexable: featureFlags.seo.indexable,
   jsonLd: featureFlags.seo.jsonLd,
-  title: `${appConfig.name} - Adaptive Practice`,
+  title: `${appConfig.name} - Adaptive English Practice`,
   description: appConfig.description,
   keywords: appConfig.keywords,
   metadataBase,

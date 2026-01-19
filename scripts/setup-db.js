@@ -1,66 +1,14 @@
-export type EnglishSkillKey = "vocab" | "grammar" | "phrases" | "comprehension";
-export type Mode = EnglishSkillKey | "mix" | "review";
+const sqlite3 = require('sqlite3');
+const { open } = require('sqlite');
 
-export interface Result {
-  correct: boolean;
-  ms: number;
-}
-
-export interface SkillStats {
-  level: number;
-  streak: number;
-  mistakeStreak: number;
-  history: Result[];
-}
-
-export type Stats = Record<EnglishSkillKey, SkillStats>;
-
-export interface EnglishQuestion {
-  id: string;
-  bankId: string;
-  prompt: string;
-  answers: string[];
-  tip: string;
-  skill: EnglishSkillKey;
-  level: number;
-  focus: string;
-  choices?: string[];
-}
-
-interface QuestionSpec {
-  prompt: string;
-  answers: string[];
-  tip: string;
-  focus: string;
-  level: number;
-  choices?: string[];
-}
-
-const MAX_HISTORY = 12;
-export const MAX_LEVEL = 8;
-
-const SKILL_LIST: EnglishSkillKey[] = [
+const SKILL_LIST = [
   "vocab",
   "grammar",
   "phrases",
   "comprehension",
 ];
 
-export const SKILL_LABELS: Record<EnglishSkillKey, string> = {
-  vocab: "Vocabulary",
-  grammar: "Grammar",
-  phrases: "Phrases",
-  comprehension: "Reading",
-};
-
-export const SKILL_SYMBOLS: Record<EnglishSkillKey, string> = {
-  vocab: "V",
-  grammar: "G",
-  phrases: "P",
-  comprehension: "R",
-};
-
-const QUESTION_BANK: Record<EnglishSkillKey, QuestionSpec[]> = {
+const QUESTION_BANK = {
     vocab: [
       {
         level: 1,
@@ -557,7 +505,7 @@ const QUESTION_BANK: Record<EnglishSkillKey, QuestionSpec[]> = {
     {
       level: 4,
       prompt:
-        "The street was flooded, so they took a longer route. Why did they take a longer route?",
+        "The street was was flooded, so they took a longer route. Why did they take a longer route?",
       answers: ["the street was flooded", "because the street was flooded"],
       tip: "This is another example of cause and effect. The flooded street (cause) forced them to take a different, longer route (effect).",
       focus: "Cause and effect",
@@ -584,242 +532,61 @@ const QUESTION_BANK: Record<EnglishSkillKey, QuestionSpec[]> = {
   ],
 };
 
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(Math.max(value, min), max);
-
-const randomItem = <T,>(items: T[]) =>
-  items[Math.floor(Math.random() * items.length)];
-
-const normalizeChoice = (value: string) =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s'-]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const uniqueChoices = (choices: string[]) => {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  choices.forEach((choice) => {
-    const key = normalizeChoice(choice);
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push(choice);
-    }
-  });
-  return result;
-};
-
-const shuffle = <T,>(items: T[]) => {
-  const next = [...items];
-  for (let i = next.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [next[i], next[j]] = [next[j], next[i]];
-  }
-  return next;
-};
-
-const accuracyFromHistory = (history: Result[]) => {
-  if (history.length === 0) {
-    return 0;
-  }
-  const correct = history.reduce(
-    (total, item) => total + (item.correct ? 1 : 0),
-    0
-  );
-  return correct / history.length;
-};
-
-const mapLevelToBand = (level: number) => clamp(Math.ceil(level / 2), 1, 4);
-
-export const createDefaultStats = (): Stats => ({
-  vocab: { level: 1, streak: 0, mistakeStreak: 0, history: [] },
-  grammar: { level: 1, streak: 0, mistakeStreak: 0, history: [] },
-  phrases: { level: 1, streak: 0, mistakeStreak: 0, history: [] },
-  comprehension: { level: 1, streak: 0, mistakeStreak: 0, history: [] },
-});
-
-export const getAccuracy = (stats: SkillStats) =>
-  accuracyFromHistory(stats.history);
-
-export const getAverageMs = (stats: SkillStats) => {
-  if (stats.history.length === 0) {
-    return 0;
-  }
-  const total = stats.history.reduce((sum, item) => sum + item.ms, 0);
-  return total / stats.history.length;
-};
-
-export const getTargetMs = (level: number) => {
-  const base = 12000;
-  const drop = 700;
-  return clamp(base - level * drop, 5200, base);
-};
-
-export const getWeakestSkill = (stats: Stats): EnglishSkillKey => {
-  let weakest: EnglishSkillKey = SKILL_LIST[0];
-  let weakestScore = 1;
-
-  SKILL_LIST.forEach((skill) => {
-    const history = stats[skill].history;
-    const accuracy = history.length === 0 ? 0.4 : accuracyFromHistory(history);
-    const mistakePenalty = Math.min(0.15, stats[skill].mistakeStreak * 0.05);
-    const score = clamp(accuracy - mistakePenalty, 0, 1);
-    if (score < weakestScore) {
-      weakestScore = score;
-      weakest = skill;
-    }
+async function setup() {
+  console.log('Opening the database...');
+  // make sure to use sqlite.verbose() to get more verbose error messages
+  const db = await open({
+    filename: './questions.db',
+    driver: sqlite3.verbose().Database
   });
 
-  return weakest;
-};
-
-export const pickSkill = (stats: Stats): EnglishSkillKey => {
-  const weighted = SKILL_LIST.map((skill) => {
-    const history = stats[skill].history;
-    const accuracy = history.length === 0 ? 0.4 : accuracyFromHistory(history);
-    const mistakeBoost = Math.min(2, stats[skill].mistakeStreak) * 0.15;
-    const lowAttemptsBoost = history.length < 4 ? 0.2 : 0;
-    const weight = Math.max(0.2, 1 - accuracy) + mistakeBoost + lowAttemptsBoost;
-    return { skill, weight };
-  });
-
-  const total = weighted.reduce((sum, item) => sum + item.weight, 0);
-  let roll = Math.random() * total;
-
-  for (const item of weighted) {
-    roll -= item.weight;
-    if (roll <= 0) {
-      return item.skill;
-    }
-  }
-
-  return "vocab";
-};
-
-export const updateStats = (
-  stats: Stats,
-  skill: EnglishSkillKey,
-  correct: boolean,
-  ms: number
-): Stats => {
-  const current = stats[skill];
-  const nextHistory = [...current.history, { correct, ms }].slice(
-    -MAX_HISTORY
-  );
-  const nextStreak = correct ? current.streak + 1 : 0;
-  const nextMistakeStreak = correct ? 0 : current.mistakeStreak + 1;
-  let nextLevel = current.level;
-  let leveledUp = false;
-  let leveledDown = false;
-
-  if (correct && nextStreak >= 3 && ms <= getTargetMs(current.level)) {
-    nextLevel = clamp(current.level + 1, 1, MAX_LEVEL);
-    leveledUp = nextLevel !== current.level;
-  }
-
-  if (!correct && nextMistakeStreak >= 2) {
-    nextLevel = clamp(current.level - 1, 1, MAX_LEVEL);
-    leveledDown = nextLevel !== current.level;
-  }
-
-  return {
-    ...stats,
-    [skill]: {
-      ...current,
-      level: nextLevel,
-      streak: correct && !leveledUp ? nextStreak : 0,
-      mistakeStreak: !correct && !leveledDown ? nextMistakeStreak : 0,
-      history: nextHistory,
-    },
-  };
-};
-
-const pickQuestionPool = (
-  skill: EnglishSkillKey,
-  band: number,
-  focus?: string
-) => {
-  const byLevel = QUESTION_BANK[skill].filter(
-    (question) => question.level === band
-  );
-  if (focus) {
-    const focused = byLevel.filter((question) => question.focus === focus);
-    if (focused.length > 0) {
-      return focused;
-    }
-  }
-  if (byLevel.length > 0) {
-    return byLevel;
-  }
-  return QUESTION_BANK[skill];
-};
-
-const buildChoices = (spec: QuestionSpec, skill: EnglishSkillKey) => {
-  const primaryAnswer = spec.answers[0];
-  const baseChoices = spec.choices ? [...spec.choices] : [];
-  if (
-    primaryAnswer &&
-    !baseChoices.some(
-      (choice) => normalizeChoice(choice) === normalizeChoice(primaryAnswer)
-    )
-  ) {
-    baseChoices.push(primaryAnswer);
-  }
-
-  const uniqueBase = uniqueChoices(baseChoices);
-  if (uniqueBase.length >= 4) {
-    return shuffle(uniqueBase).slice(0, 4);
-  }
-
-  const pool = QUESTION_BANK[skill]
-    .flatMap((item) => item.choices ?? [])
-    .filter(
-      (choice) =>
-        !spec.answers.some(
-          (answer) => normalizeChoice(choice) === normalizeChoice(answer)
-        )
+  console.log('Migrating the schema...');
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill TEXT NOT NULL,
+      level INTEGER NOT NULL,
+      prompt TEXT NOT NULL,
+      answers TEXT NOT NULL,
+      tip TEXT,
+      focus TEXT,
+      choices TEXT
     );
+  `);
 
-  const extras = shuffle(uniqueChoices(pool)).slice(
-    0,
-    Math.max(0, 4 - uniqueBase.length)
+  // Clear the table before inserting to avoid duplicates on re-running
+  console.log('Clearing existing questions...');
+  await db.exec('DELETE FROM questions');
+
+  console.log('Inserting questions...');
+  const insertStmt = await db.prepare(
+    'INSERT INTO questions (skill, level, prompt, answers, tip, focus, choices) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
-  return shuffle([...uniqueBase, ...extras]);
-};
 
-export const generateQuestion = (args: {
-  skill: EnglishSkillKey;
-  level: number;
-  stats: Stats;
-  previousQuestion?: EnglishQuestion;
-  previousCorrect?: boolean;
-}): EnglishQuestion => {
-  const { skill, level, stats, previousQuestion, previousCorrect } = args;
-  const baseBand = mapLevelToBand(level);
-  const shouldStepDown = stats[skill].mistakeStreak >= 2 || previousCorrect === false;
-  const band = clamp(baseBand - (shouldStepDown ? 1 : 0), 1, 4);
-  const focus =
-    previousCorrect === false && previousQuestion?.skill === skill
-      ? previousQuestion.focus
-      : undefined;
+  for (const skill of SKILL_LIST) {
+    const questions = QUESTION_BANK[skill];
+    for (const q of questions) {
+      await insertStmt.run(
+        skill,
+        q.level,
+        q.prompt,
+        JSON.stringify(q.answers),
+        q.tip,
+        q.focus,
+        JSON.stringify(q.choices || [])
+      );
+    }
+  }
 
-  const pool = pickQuestionPool(skill, band, focus);
-  const filtered =
-    previousQuestion?.skill === skill
-      ? pool.filter((item) => item.prompt !== previousQuestion.prompt)
-      : pool;
-  const pick = randomItem(filtered.length > 0 ? filtered : pool);
+  await insertStmt.finalize();
 
-  return {
-    id: `${skill}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    bankId: `${skill}:${pick.prompt}`,
-    prompt: pick.prompt,
-    answers: pick.answers,
-    tip: pick.tip,
-    focus: pick.focus,
-    skill,
-    level,
-    choices: buildChoices(pick, skill),
-  };
-};
+  const count = await db.get('SELECT COUNT(*) as count FROM questions');
+  console.log(`Database setup complete. ${count.count} questions inserted.`);
+
+  await db.close();
+}
+
+setup().catch(err => {
+  console.error('Error during database setup:', err);
+  process.exit(1);
+});

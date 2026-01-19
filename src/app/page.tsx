@@ -10,6 +10,7 @@ import { popUnderAd } from "@/components/PopUnderAd";
 import { useTrainingSession } from "@/features/training/useTrainingSession";
 import { useThemeMode } from "@/hooks/useThemeMode";
 
+
 const formatMs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const formatSeconds = (value: number) => `${String(value).padStart(2, "0")}s`;
 
@@ -159,8 +160,11 @@ export default function Home() {
   let content: ReactElement | null = null;
 
   if (screen === "menu") {
+
     content = (
       <>
+
+
         <section className={styles.hero}>
           <h1 className={styles.heroTitle}>{copy.menu.title}</h1>
           <p className={styles.heroText}>{copy.menu.description}</p>

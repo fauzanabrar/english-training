@@ -668,15 +668,8 @@ export default function Home() {
                 className={styles.appBarBack}
                 aria-label={copy.summary.backToMenu}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M15 6L9 12l6 6"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 12H5M12 19l-7-7 7-7" />
                 </svg>
               </button>
             )}

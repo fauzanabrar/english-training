@@ -635,6 +635,7 @@ export default function Home() {
           type="button"
           onClick={resetStats}
           className={styles.dangerButton}
+          style={{ marginBottom: "1rem" }}
         >
           {copy.settings.resetStats}
         </button>
